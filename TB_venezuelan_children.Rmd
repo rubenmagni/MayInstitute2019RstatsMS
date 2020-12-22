@@ -1,0 +1,223 @@
+---
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+# Day 1 - Section 1 : MSstats, introduction to data and preprocessing
+
+## Objective
+
+- Preprocessing steps to make required input format for MSstats from output from diverse output of spectral processing tools.
+- Make annotation file, based on experimental design.
+
+
+***
+
+## Workflow in MSstats
+
+
+
+## Data
+- the quantified peak intensities data from Venezuelan children suspected or diagnosed of TB, processed by MaxQuant.
+
+
+## Load MSstats
+
+Load MSstats first. Then you are ready to start MSstats. 
+
+```{r, eval=F, echo=T, warning=F}
+library(MSstats)
+?MSstats
+```
+
+```{r, eval=T, echo=F, warning=F}
+#library(MSstats, warn.conflicts = F, quietly = T, verbose = F)
+library(MSstats)
+
+?MSstats
+```
+
+
+***
+
+## Allowable data formats
+
+`MSstats` performs statistical analysis steps, that follow peak identification and quantitation. Therefore, input
+to MSstats is the output of other software tools (such as `Skyline`, `MaxQuant` and so on) that read raw spectral files
+, identify and quantify spectral peaks. The preferred structure of data for use in MSstats is a .csv file
+in a *long* format with at least 10 columns representing the following variables: **ProteinName**, **PeptideSequence**, **PrecursorCharge**, **FragmentIon**, **ProductCharge**, **IsotopeLabelType**, **Condition**, **BioReplicate**, **Run**, **Intensity**. The variable names are fixed, but are case-insensitive.
+
+***
+
+## Convert to MSstats required format (Data cleaning)
+
+***
+Let's start preprocessing steps to make required input format for MSstats from output from diverse output of spectral processing tools.
+
+- Data input support for various data acquisition methods : DDA, DIA, SRM
+
+- Interoperability with existing computational tools :
+      - Converter functions for 7 data processin tools : 
+      `SkylinetoMSstatsFormat`, `MaxQtoMSstatsFormat`, `OpenMStoMSstatsFormat`, `ProgenesistoMSstatsFormat`, `PDtoMSstatsFormat`, `SpectronauttoMSstatsFormat`, `OpenSWATHtoMSstatsFormat`, `DIAUmpiretoMSstatsFormat`
+      - Consistent data cleaning steps across converter functions : filter multiple measurements, shared peptides, etc.
+      - Generate the same format of data from diverse type of data format.
+
+
+### Skyline output
+
+
+
+
+***
+
+### MaxQuant output
+
+#### Read data
+
+Three files should be prepared before MSstats. Two files, ‘proteinGroups.txt’ and ‘evidence.txt’ are outputs
+from MaxQuant.
+
+```{r}
+# First, get protein ID information
+proteinGroups <- read.table("C:/Users/rmagni/Desktop/GMU_projects/TB_pediatric_venezuela/MaxQuant_results/Quantification_12-14-20/ProteinGroups.txt", sep = "\t", header = TRUE)
+```
+
+```{r}
+# Read in MaxQuant file: evidence.txt
+evi <- read.table("C:/Users/rmagni/Desktop/GMU_projects/TB_pediatric_venezuela/MaxQuant_results/Quantification_12-14-20/evidence.txt", sep="\t", header=TRUE)
+colnames(evi)
+unique(evi$Raw.file)
+```
+
+One file is for annotation information, required to fill in Condition and BioReplicate for corresponding Run information. Users have to prepare as csv or txt file like ‘ABRF2015_MaxQuant_annotation.csv’, which includes **Run**, **Condition**, and **BioReplicate** information, and load it in R.
+
+
+#### Set annotation file
+
+Annotation information is required to fill in **Condition** and **BioReplicate** for corresponding **Raw.file** information. Users have to prepare as csv or txt file like 'ABRF2015_MaxQuant_annotation.csv', which includes **Raw.file**, **Condition**, and **BioReplicate** information, and load it in R. **Raw.file** column in the annotation file should be the same as unique **Raw.file** in evidence.txt file.
+
+```{r}
+# Read in annotation including condition and biological replicates: annotation.csv
+annot.maxquant <- read.csv("C:/Users/rmagni/Desktop/GMU_projects/TB_pediatric_venezuela/MaxQuant_results/tb_venez_MaxQuant_annotation.csv", header = TRUE)
+annot.maxquant
+```
+
+```{r, eval=F}
+?MaxQtoMSstatsFormat
+```
+
+```{r}
+# reformating and pre-processing for MaxQuant output.
+# do not protein with 1 peptide. Sometimes if proteins are sparse I need to avoid removing proteins with 1 peptide because it will give me an error otherwise.   m 
+input.maxquant <- MaxQtoMSstatsFormat(evidence=evi, 
+                                      annotation=annot.maxquant,
+                                      proteinGroups=proteinGroups,
+                                      removeProtein_with1Peptide=FALSE)
+head(input.maxquant)
+```
+
+
+#### Preliminary check
+
+```{r}
+length(unique(input.maxquant$ProteinName)) 
+sum(is.na(input.maxquant$Intensity)) 
+sum(!is.na(input.maxquant$Intensity) & input.maxquant$Intensity==0)
+```
+
+> Challenge
+> 
+> * Let's check unique information for `Run`,`BioReplicate` and `Condition` in `input.maxquant`.
+
+```{r}
+unique(input.maxquant[, c('Run', 'BioReplicate', 'Condition')])
+```
+***
+
+
+## Save your work
+
+We can save the data that we made so far.
+
+```{r}
+
+save(input.maxquant, file='C:/Users/rmagni/Desktop/GMU_projects/TB_pediatric_venezuela/MaxQuant_results/Quantification_12-14-20/input.maxquant.rda')
+    
+
+```
+#### Default normalization and summarization options
+
+`dataProcess` perform (1) normalization first. The default option for normalization is `equalizeMedians`. `equalizeMedians' fits for label-based SRM experiments, which we can use reference signals. There are three more options for normalization. Depending on the suitable assumption for your experiment, you can choose one of them.
+
+Then, (2) run level summarization will be performed including missing value imputation by accerelated failure model and robust parameter estimation by TMP (Tukey's median polish).
+
+```{r, eval=F, message=F, warning=F}
+quant.maxquant <- dataProcess(raw = input.maxquant,
+                              logTrans=2,
+                              #normalization = 'quantile',
+                              summaryMethod = 'TMP',
+                              MBimpute=TRUE,
+                              censoredInt='NA',
+                              cutoffCensored='minFeature',
+                              maxQuantileforCensored = 0.999)
+```
+#### Quality control plots
+
+Now let's look at what the equalize medians procedure did to our data. QC plot is good to see the distribution of intensities per MS run and outliers. So, it is good visualization to check normalization. However, not good to see individual intensities.
+
+
+```{r, eval=F, message=F, warning=F}
+dataProcessPlots(data = quant.maxquant,
+                 type="QCplot",
+                 width=7, height=7,
+                 which.Protein = 'allonly',
+                 address='C:/Users/rmagni/Desktop/GMU_projects/TB_pediatric_venezuela/MaxQuant_results/Quantification_12-14-20/venezuelan_maxquant_equalMed_')
+```
+
+Now the median log2 intensities per run across MS runs (lines in the boxes) are the same. 
+
+
+#### Profile plots
+
+Profile plot is good visualization to check individual measurements. Each dot means one intensity. The dots are linked with line per feature. If line is disconnected, that means there is no value (missing value). Color means different peptides and charge stages. Different line type means different transition. 
+
+```{r, eval=F}
+dataProcessPlots(data = quant.maxquant,
+                 type="Profileplot",
+                 featureName="NA",
+                 width=7, height=7,
+                 address="C:/Users/rmagni/Desktop/GMU_projects/TB_pediatric_venezuela/MaxQuant_results/Quantification_12-14-20/venezuelan_maxquant_equalMed__")
+
+```
+
+
+```{r}
+comparison1<-matrix(c(-1,1),nrow=1)
+```
+```{r}
+comparison<-comparison1
+row.names(comparison)<-"C2-C1"
+```
+
+```{r}
+test.maxquant <- groupComparison(contrast.matrix=comparison, data=quant.maxquant)
+MaxQuant.result <- test.maxquant$ComparisonResult
+```
+```{r}
+# save your work
+save(MaxQuant.result, file='C:/Users/rmagni/Desktop/GMU_projects/TB_pediatric_venezuela/MaxQuant_results/Quantification_12-14-20/result.rda')
+write.csv(MaxQuant.result, file='C:/Users/rmagni/Desktop/GMU_projects/TB_pediatric_venezuela/MaxQuant_results/Quantification_12-14-20/testResult_venezuelan_maxquant.csv')
+```
+
+```{r}
+groupComparisonPlots(data = MaxQuant.result,
+                     type = 'VolcanoPlot',
+                     address = 'C:/Users/rmagni/Desktop/GMU_projects/TB_pediatric_venezuela/MaxQuant_results/Quantification_12-14-20/testResult_venezuelan_maxquant_')
+
+groupComparisonPlots(data = MaxQuant.result,
+                     type = 'ComparisonPlot',
+                     address = 'C:/Users/rmagni/Desktop/GMU_projects/TB_pediatric_venezuela/MaxQuant_results/Quantification_12-14-20/testResult_venezuelan_maxquant_')
+
+```
+
